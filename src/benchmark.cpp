@@ -68,7 +68,7 @@ int main(int argc, char **argv)
 	// 	"/afs/ece.cmu.edu/usr/arexhari/Public/645-project/inputs/2400x1800.jpg",
 	// 	"/afs/ece.cmu.edu/usr/arexhari/Public/645-project/inputs/4008x3006.jpg"};
 	char *fileNames[NUM_OF_IMAGES] = {
-		"/afs/andrew.cmu.edu/usr19/anesathu/private/fastCodeProject/inputs/640x480.jpg"};
+		"inputs/8x8.jpg"};
 	for (int i = 0; i < NUM_OF_IMAGES; i++)
 	{
 		images[i] = imread(fileNames[i]);

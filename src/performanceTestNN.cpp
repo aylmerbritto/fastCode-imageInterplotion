@@ -21,11 +21,6 @@ using namespace std;
 
 #define NUMBER_OF_RUNS 100
 
-#define mask0  (0) | (0 << 2) | (0 << 4) | (0 << 6)
-#define mask1  (1) | (1 << 2) | (1 << 4) | (1 << 6)
-#define mask2  (2) | (2 << 2) | (2 << 4) | (2 << 6)
-#define mask3  (3) | (3 << 2) | (3 << 4) | (3 << 6)
-
 // timing routine for reading the time stamp counter
 static __inline__ unsigned long long rdtsc(void)
 {
@@ -174,75 +169,47 @@ void generateCoefficients(float *coefficients)
     _mm_store_ps(coefficients + 60, vec4);
 }
 
-void kernel(float *intensityRin, float *intensityGin, float *intensityBin, float *intensityRout, float *intensityGout, float *intensityBout, float *coefficients, int rowSize)
+void kernel(float *intensityRin, float *intensityGin, float *intensityBin, float *intensityRout, float *intensityGout, float *intensityBout, int rowSize)
 {
-    float *address;
-    // load inR, inG, inB pixel values (4 values each)
+    __m128 inR, inG, inB;
+    __m128 outRA, outRB, outGA, outGB, outBA, outBB;
+    int mask0 = (0) | (0 << 2) | (1 << 4) | (1 << 6);
+    int mask1 = (2) | (2 << 2) | (3 << 4) | (3 << 6);
 
-    //Initializing the first row of output Pixels
-    __m128 outRA = _mm_setzero_ps(); __m128 outGA = _mm_setzero_ps(); __m128 outBA = _mm_setzero_ps();
-    // Q11 over the SIMD Register
-    __m128 tmpR = _mm_broadcast_ss(intensityRin); __m128 tmpG = _mm_broadcast_ss(intensityGin); __m128 tmpB = _mm_broadcast_ss(intensityBin);
-    //Load A1*C*Z
-    __m128 coefsA = _mm_load_ps(coefficients + 0); // 
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    // Q12 over the SIMD Register
-    tmpR = _mm_broadcast_ss(intensityRin+1); tmpG = _mm_broadcast_ss(intensityGin+1); tmpB = _mm_broadcast_ss(intensityBin+1);
-    //Load A2*C*Z
-    __m128 coefsB = _mm_load_ps(coefficients + 4);
-    __m128 outRB = _mm_setzero_ps(); __m128 outGB = _mm_setzero_ps(); __m128 outBB = _mm_setzero_ps(); 
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB); outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
-
-    coefsA = _mm_load_ps(coefficients + 16);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    coefsB = _mm_load_ps(coefficients + 20);
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB); outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
-
-    // Q21 over the SIMD Register
-    tmpR = _mm_broadcast_ss(intensityRin+(rowSize/2)); tmpG = _mm_broadcast_ss(intensityGin+(rowSize/2)); tmpB = _mm_broadcast_ss(intensityBin+(rowSize/2));
-    coefsA = _mm_load_ps(coefficients + 32);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    coefsB = _mm_load_ps(coefficients + 36);
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB); outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
     
-    tmpR = _mm_broadcast_ss(intensityRin+(rowSize/2)+1); tmpG = _mm_broadcast_ss(intensityGin+(rowSize/2)+1); tmpB = _mm_broadcast_ss(intensityBin+(rowSize/2)+1);
-    coefsA = _mm_load_ps(coefficients + 48);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    coefsB = _mm_load_ps(coefficients + 52);
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB); outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
-
-    _mm_store_ps(intensityRout + (0 * rowSize), outRA); _mm_store_ps(intensityGout + (0 * rowSize), outGA); _mm_store_ps(intensityBout + (0 * rowSize), outBA);
-    _mm_store_ps(intensityRout + (1 * rowSize), outRB); _mm_store_ps(intensityGout + (1 * rowSize), outGB); _mm_store_ps(intensityBout + (1 * rowSize), outBB);
     
-    outRA = _mm_setzero_ps(); outGA = _mm_setzero_ps(); outBA = _mm_setzero_ps();
-    coefsB = _mm_load_ps(coefficients + 12);
-    tmpR = _mm_broadcast_ss(intensityRin); tmpG = _mm_broadcast_ss(intensityGin); tmpB = _mm_broadcast_ss(intensityBin);
-    coefsA = _mm_load_ps(coefficients + 8);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
+    inR = _mm_load_ps(intensityRin);
+    outRA = _mm_permute_ps(inR, mask0);
+    outRB = _mm_permute_ps(inR, mask1);
+    inB = _mm_load_ps(intensityBin);
+    outBA = _mm_permute_ps(inB, mask0);
+    outBB = _mm_permute_ps(inB, mask1);
+    inG = _mm_load_ps(intensityGin);
+    outGA = _mm_permute_ps(inG, mask0);
+    outGB = _mm_permute_ps(inG, mask1);
 
-    outRB = _mm_setzero_ps(); outGB = _mm_setzero_ps(); outBB = _mm_setzero_ps(); 
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB); outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
-    coefsA = _mm_load_ps(coefficients + 24);
-    tmpR = _mm_broadcast_ss(intensityRin+1); tmpG = _mm_broadcast_ss(intensityGin+1); tmpB = _mm_broadcast_ss(intensityBin+1);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA);outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    coefsB = _mm_load_ps(coefficients + 28);
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB);outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
+    _mm_store_ps(intensityRout + (0 * rowSize), outRA);
+    _mm_store_ps(intensityRout + (1 * rowSize), outRA);
     
-    tmpR = _mm_broadcast_ss(intensityRin+(rowSize/2)); tmpG = _mm_broadcast_ss(intensityGin+(rowSize/2)); tmpB = _mm_broadcast_ss(intensityBin+(rowSize/2));
-    coefsA = _mm_load_ps(coefficients + 40);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    coefsB = _mm_load_ps(coefficients + 44);
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB); outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
+    _mm_store_ps(intensityRout + 4, outRB);
+    _mm_store_ps(intensityRout + 4 + rowSize, outRB);
+    
 
-    tmpR = _mm_broadcast_ss(intensityRin+(rowSize/2)+1); tmpG = _mm_broadcast_ss(intensityGin+(rowSize/2)+1); tmpB = _mm_broadcast_ss(intensityBin+(rowSize/2)+1);
-    coefsA = _mm_load_ps(coefficients + 56);
-    outRA = _mm_fmadd_ps(tmpR, coefsA, outRA); outGA = _mm_fmadd_ps(tmpG, coefsA, outGA); outBA = _mm_fmadd_ps(tmpB, coefsA, outBA);
-    coefsB = _mm_load_ps(coefficients + 60);
-    outRB = _mm_fmadd_ps(tmpR, coefsB, outRB); outGB = _mm_fmadd_ps(tmpG, coefsB, outGB);outBB = _mm_fmadd_ps(tmpB, coefsB, outBB);
-
-    _mm_store_ps(intensityRout + (2 * rowSize), outRA); _mm_store_ps(intensityGout + (2 * rowSize), outGA); _mm_store_ps(intensityBout + (2 * rowSize), outBA);
-    _mm_store_ps(intensityGout + (3 * rowSize), outGB); _mm_store_ps(intensityRout + (3 * rowSize), outRB); _mm_store_ps(intensityBout + (3 * rowSize), outBB);  
+    
+    _mm_store_ps(intensityBout + (0 * rowSize), outBA);
+    _mm_store_ps(intensityBout + (1 * rowSize), outBA);
+    
+    _mm_store_ps(intensityBout + 4, outBB);
+    _mm_store_ps(intensityBout + (4+ rowSize), outBB);
+    
+    
+    _mm_store_ps(intensityGout + (0 * rowSize), outGA);
+    _mm_store_ps(intensityGout + (1 * rowSize), outGA);
+    
+    _mm_store_ps(intensityGout + 4, outGB);
+    _mm_store_ps(intensityGout + (4+ rowSize), outGB);
 }
+
 
 
 int main(int argc, char **argv)
@@ -273,29 +240,29 @@ int main(int argc, char **argv)
     float *coefficients = (float *)calloc(4 * 4 * 4, sizeof(float));
     // generate coefficients
     generateCoefficients(coefficients);
+    OoutputIndex = 0; OinputIndex = 0;
     double localSum = 0;
     long double minTime = 4000000000000000;
-    OoutputIndex = 0; OinputIndex = 0;
-    // for(int t=0;t<(gnHeight*gnWidth/256);t++){
-    //     OoutputRow = 16*((t*16)/(outputRowSize/2));
-    //     OoutputColumn = 2*((t*16)%(outputRowSize/2));
-    //     OoutputIndex = (OoutputRow*outputRowSize)+OoutputColumn;
-    //     OinputIndex = ((OoutputRow*outputRowSize)/4)+(outputColumn/2);
-    //     if(gnHeight>16){
-    //         outputColumnSize = 32;
-    //         outputRowSize = 32;
-    //     }
-        minTime = 4000000000000000;
+    for(int t=0;t<(gnHeight*gnWidth/256);t++){
+        OoutputRow = 16*((t*16)/(outputRowSize/2));
+        OoutputColumn = 2*((t*16)%(outputRowSize/2));
+        OoutputIndex = (OoutputRow*outputRowSize)+OoutputColumn;
+        OinputIndex = ((OoutputRow*outputRowSize)/4)+(outputColumn/2);
+        if(gnHeight>16){
+            outputColumnSize = 32;
+            outputRowSize = 32;
+        }
+        long double minTime = 4000000000;
         for(int k = 0; k < NUMBER_OF_RUNS; k++){
             sum=0;
             for(int i = 0; i < (outputColumnSize*outputRowSize)/16 ; i++){
                 // cout << "In here" << i << endl;
                 outputRow = 4*((i*2)/(outputRowSize/2));
                 outputColumn = 2*((i*2)%(outputRowSize/2));
-                outputIndex = OoutputIndex+(outputRow*outputRowSize)+outputColumn;
-                inputIndex = OinputIndex+((outputRow*outputRowSize)/4)+(outputColumn/2);
+                outputIndex = (outputRow*outputRowSize)+outputColumn;
+                inputIndex = ((outputRow*outputRowSize)/4)+(outputColumn/2);
                 t0 = rdtsc();
-                kernel(inputImageR+inputIndex, inputImageG+inputIndex, inputImageB+inputIndex,outputR+outputIndex, outputG+outputIndex, outputB+outputIndex,coefficients, outputRowSize);
+                kernel(inputImageR + inputIndex, inputImageG + inputIndex, inputImageB + inputIndex, outputR + outputIndex, outputG + outputIndex, outputB + outputIndex, outputRowSize);
                 t1 = rdtsc();
                 sum=sum+(t1-t0);
             }
@@ -303,13 +270,12 @@ int main(int argc, char **argv)
                 minTime =sum;
             }
         }
-        // localSum = localSum+minTime;
-    // }
+        localSum = localSum+minTime;
+    }
     // sum = ((sum) * MAX_FREQ / BASE_FREQ)/NUMBER_OF_RUNS;
-    sum = minTime* MAX_FREQ / BASE_FREQ;
-    GFLOPS = (2*48*4*((gnHeight*gnWidth*4)/16))/sum;
+    sum = localSum* MAX_FREQ / BASE_FREQ;
+    GFLOPS = (2*12*((gnHeight*gnWidth*4)/16))/sum;
     cout << gnHeight <<','<< GFLOPS <<','<< sum;
-    // encodeImage(outputR, outputG, outputB);
     free(coefficients);
     free(outputR);
     free(outputG);

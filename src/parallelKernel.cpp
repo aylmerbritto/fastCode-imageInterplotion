@@ -8,7 +8,7 @@
 #include <x86intrin.h>
 #include "xmmintrin.h"
 #include "immintrin.h"
-
+#include "omp.h"
 using namespace cv;
 using namespace std;
 
@@ -16,9 +16,9 @@ using namespace std;
 #define BASE_FREQ 2.4
 #define WINDOWSIZE 2
 
-#define INPUTWIDTH 8
-#define INPUTHEIGHT 8
-
+#define INPUTWIDTH 32
+#define INPUTHEIGHT 32
+#define NUM_RUNS 100
 #define mask0  (0) | (0 << 2) | (0 << 4) | (0 << 6)
 #define mask1  (1) | (1 << 2) | (1 << 4) | (1 << 6)
 #define mask2  (2) | (2 << 2) | (2 << 4) | (2 << 6)
@@ -38,14 +38,14 @@ int decodeImage(float *inputImageR, float *inputImageG, float *inputImageB)
     int i, j, index = 0;
     float *tmpBuffer;
     // READ IMAGE and Init buffers
-    const char *fileName = "inputs/8x8.jpg";
+    const char *fileName = "inputs/black-images/32x32.jpg";
     Mat fullImage, windowImage;
     Mat channels[3];
     std::vector<float> array;
     fullImage = imread(fileName);
     int imageRows = (int)fullImage.rows, imageCols = (int)fullImage.cols;
-    cout << "Width : " << imageCols << endl;
-    cout << "Height: " << imageRows << endl;
+    // cout << "Width : " << imageCols << endl;
+    // cout << "Height: " << imageRows << endl;
     
     split(fullImage, channels);
     array.assign(channels[0].datastart, channels[0].dataend);
@@ -57,7 +57,7 @@ int decodeImage(float *inputImageR, float *inputImageG, float *inputImageB)
     array.assign(channels[2].datastart, channels[2].dataend);
     tmpBuffer = &array[0];
     memcpy(inputImageR, tmpBuffer, imageCols * imageRows * sizeof(float));
-    cout << "RGB Channels Read and assgined"<<endl;
+    // cout << "RGB Channels Read and assgined"<<endl;
     return 0;
 }
 
@@ -248,7 +248,10 @@ void kernel(float *intensityRin, float *intensityGin, float *intensityBin, float
 
 int main(int argc, char **argv)
 {
-    unsigned long long t0, t1, sum=0;
+    int i,k,nThreads;
+    // unsigned long long t0, t1 ;
+    double sum=0,GFLOPS,t0, t1;
+
     // kernel width
     int outputRowSize = INPUTWIDTH*2;
     int outputColumnSize = INPUTHEIGHT*2;
@@ -269,34 +272,46 @@ int main(int argc, char **argv)
     // printf("PREPROCESSING TIME %f\n", ((double)(t1-t0) * MAX_FREQ / BASE_FREQ));
     float *coefficients = (float *)calloc(4 * 4 * 4, sizeof(float));
     generateCoefficients(coefficients);
-    int n16 = INPUTWIDTH/16;
-    // generate coefficients
-    for(int i = 0; i < (outputColumnSize*outputRowSize)/16 ; i++){
-        outputRow = 4*((i*2)/(outputRowSize/2));
-        outputColumn = 2*((i*2)%(outputRowSize/2));
-        outputIndex = (outputRow*outputRowSize)+outputColumn;
-        inputIndex = ((outputRow*outputRowSize)/4)+(outputColumn/2);
-        // cout << i << "  " <<inputIndex<< "  "  << outputIndex<<endl;
-        t0 = rdtsc();
-        kernel(inputImageR+inputIndex, inputImageG+inputIndex, inputImageB+inputIndex,outputR+outputIndex, outputG+outputIndex, outputB+outputIndex,coefficients, outputRowSize);
-        t1 = rdtsc();
-        sum=sum+(t1-t0);
+    // nThreads = omp_get_max_threads();
+    // cout << nThreads << endl;
+    for (int j=1;j<=24;j++){
+        // cout << j << endl;
+        omp_set_num_threads(j);
+        for(k =0; k<NUM_RUNS; k++){
+            // sum = 0;
+                #pragma omp parallel private(i, outputRow, outputColumn, outputIndex, inputIndex)
+                {   
+                    #pragma omp for 
+                    for(i = 0; i < (outputColumnSize*outputRowSize)/16 ; i++){
+                        outputRow = 4*((i*2)/(outputRowSize/2));
+                        outputColumn = 2*((i*2)%(outputRowSize/2));
+                        outputIndex = (outputRow*outputRowSize)+outputColumn;
+                        inputIndex = ((outputRow*outputRowSize)/4)+(outputColumn/2);
+                        if (omp_get_thread_num()==0){
+                            t0 = rdtsc(); //omp_get_wtime();
+                        }
+                        kernel(inputImageR+inputIndex, inputImageG+inputIndex, inputImageB+inputIndex,outputR+outputIndex, outputG+outputIndex, outputB+outputIndex,coefficients, outputRowSize);
+                        if (omp_get_thread_num()==0){
+                            t1 = rdtsc(); //omp_get_wtime();
+                        }
+                        if (omp_get_thread_num()==0){
+                            // cout << "yo srsly? " << i <<endl;
+                            sum=sum+(t1-t0);
+                            // cout<<endl;
+                        }
+                    }
+                    // if(sum<minTime){
+                    //     minTime =sum;
+                    // }
+                }
+        }
+        sum = (sum* MAX_FREQ / BASE_FREQ)/NUM_RUNS;
+        GFLOPS = (2*48*4*((outputColumnSize*outputRowSize)/16))/sum;
+        cout << j<<"," << GFLOPS <<','<< sum<<endl;
     }
-    
-    sum =  ((sum) * MAX_FREQ / BASE_FREQ);
-    double GFLOPS = (2*48*4*((INPUTHEIGHT*INPUTWIDTH*4)/16))/sum;
-    cout << GFLOPS << ","<<GFLOPS<< endl;
     encodeImage(outputR, outputG, outputB);
     free(coefficients);
     free(outputR);
     free(outputG);
     free(outputB);
 }
-
-
-
-/*
-1. how many 16x16 images
-2. inputR = skip 16x16 = 256
-2. outputR  = skip 32x32 = 
-*/

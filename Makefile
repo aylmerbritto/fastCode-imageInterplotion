@@ -1,4 +1,4 @@
-CFLAGS = `pkg-config --cflags opencv` -mavx -mavx2 -mfma -O1
+CFLAGS = `pkg-config --cflags opencv` -mavx -mavx2 -mfma -O3
 LIBS = `pkg-config --libs opencv`
 
 versiontest : src/version.cpp
@@ -34,6 +34,11 @@ parallel: src/parallelKernel.cpp
 	objdump -d ./build/parallel > parallel.S
 	./build/parallel
 
+parallelNN: src/nnImageParallel.cpp
+	@echo ==========================================
+	g++ $(CFLAGS) $(LIBS) -fopenmp -o build/$@ $<
+	objdump -d ./build/parallelNN > parallel.S
+	./build/parallelNN
 
 memory: src/memory.cpp
 	g++ $(CFLAGS) $(LIBS) -o build/$@ $<	
@@ -41,9 +46,10 @@ memory: src/memory.cpp
 nn: src/nnImage.cpp
 	@echo ==========================================
 	g++ $(CFLAGS) $(LIBS) -o build/$@ $<
+	./build/nn
 
 bm : src/benchmarkSpec.cpp
-	g++ $(CFLAGS) $(LIBS) -o build/$@ $<
+	g++ $(CFLAGS) $(LIBS) -fopenmp -o build/$@ $<
 
 performance: src/performanceTest.cpp
 	@echo ==========================================
@@ -53,11 +59,23 @@ performanceOld: src/performanceTestOld.cpp
 	@echo ==========================================
 	g++ $(CFLAGS) $(LIBS) -o build/$@ $<
 
+performanceNN: src/performanceTestNN.cpp
+	@echo ==========================================
+	g++ $(CFLAGS) $(LIBS) -o build/$@ $<
+
+parallelBM: src/benchmarkParallel.cpp
+	g++ $(CFLAGS) $(LIBS) -fopenmp -o build/$@ $<
+	./build/parallelBM
+
 rp: clean bm performance
 	sh performanceDriver.sh > plots/kernelPerformance.csv
 
+rpnn: clean bm performanceNN
+	sh performanceDriverNN.sh > plots/kernelPerformanceNN.csv
+
 rpOld: clean bm performanceOld
 	sh performanceDriverbkp.sh > plots/kernelPerformance.csv
+
 
 clean : 
 	rm -rf build/*

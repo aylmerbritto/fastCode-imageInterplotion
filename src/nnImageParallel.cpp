@@ -8,6 +8,7 @@
 #include <x86intrin.h>
 #include "xmmintrin.h"
 #include "immintrin.h"
+#include "omp.h"
 
 using namespace cv;
 using namespace std;
@@ -17,8 +18,8 @@ using namespace std;
 
 #define WINDOWSIZE 2
 
-#define ROWS 640
-#define COLS 480
+#define ROWS 16
+#define COLS 16
 #define NUMBER_OF_RUNS 100
 char *home = "/afs/andrew.cmu.edu/usr19/anesathu/private/fastCodeProject/";
 
@@ -36,7 +37,7 @@ int decodeImage(float *inputImageR, float *inputImageG, float *inputImageB)
     int i, j, index = 0;
     float *tmpBuffer;
     // READ IMAGE and Init buffers
-    const char *fileName = "inputs/640x480.jpg";
+    const char *fileName = "inputs/16x16.jpg";
     Mat fullImage, windowImage;
     Mat channels[3];
     std::vector<float> array;
@@ -89,25 +90,21 @@ void kernel(float *intensityRin, float *intensityGin, float *intensityBin, float
     const int mask0 = (0) | (0 << 2) | (1 << 4) | (1 << 6);
     const int mask1 = (2) | (2 << 2) | (3 << 4) | (3 << 6);
 
-    
-    
-    inR = _mm_load_ps(intensityRin);
-    outRA = _mm_permute_ps(inR, mask0);
-    outRB = _mm_permute_ps(inR, mask1);
-    inB = _mm_load_ps(intensityBin);
-    outBA = _mm_permute_ps(inB, mask0);
-    outBB = _mm_permute_ps(inB, mask1);
     inG = _mm_load_ps(intensityGin);
     outGA = _mm_permute_ps(inG, mask0);
     outGB = _mm_permute_ps(inG, mask1);
 
+    inR = _mm_load_ps(intensityRin);
+    outRA = _mm_permute_ps(inR, mask0);
+    outRB = _mm_permute_ps(inR, mask1);
     _mm_store_ps(intensityRout + (0 * rowSize), outRA);
     _mm_store_ps(intensityRout + (1 * rowSize), outRA);
     
+    inB = _mm_load_ps(intensityBin);
+    outBA = _mm_permute_ps(inB, mask0);
+    outBB = _mm_permute_ps(inB, mask1);
     _mm_store_ps(intensityRout + 4, outRB);
     _mm_store_ps(intensityRout + 4 + rowSize, outRB);
-    
-
     
     _mm_store_ps(intensityBout + (0 * rowSize), outBA);
     _mm_store_ps(intensityBout + (1 * rowSize), outBA);
@@ -121,11 +118,6 @@ void kernel(float *intensityRin, float *intensityGin, float *intensityBin, float
     
     _mm_store_ps(intensityGout + 4, outGB);
     _mm_store_ps(intensityGout + (4+ rowSize), outGB);
-    
-    
-    
-    
-    
 }
 
 int main(int argc, char **argv)
@@ -153,36 +145,41 @@ int main(int argc, char **argv)
 
     char AfileName[100];
     strcpy(AfileName, home);
-    strcat(AfileName, "inputs/black-images/4096x4096.jpg");
+    strcat(AfileName, "inputs/32x32.jpg");
     // strcat(AfileName, "inputs/8x8.jpg");
-
+    int i;
     decodeImage(inputImageR, inputImageG, inputImageB);
-
-    for(int k = 0; k < NUMBER_OF_RUNS; k++){
-        sum = 0;
-        for (int i = 0; i < (outputColumnSize * outputRowSize) / 16; i++)
-        {
-            outputRow = 2 * ((i * 4) / (outputRowSize / 2));
-            outputColumn = 2 * ((i * 4) % (outputRowSize / 2));
-            outputIndex = (outputRow * outputRowSize) + outputColumn;
-            inputIndex = (i*4);
-            // cout << i << '\t' << inputIndex << endl;
-            t0 = rdtsc();
-            kernel(inputImageR + inputIndex, inputImageG + inputIndex, inputImageB + inputIndex, outputR + outputIndex, outputG + outputIndex, outputB + outputIndex, outputRowSize);
-            t1 = rdtsc();
-            sum+=(t1-t0);
-        }
-        if(sum<minTime){
-            minTime =sum;
-        }
-        sum = ((sum) * MAX_FREQ / BASE_FREQ);
+    for (int j=1;j<=24;j++){
+        omp_set_num_threads(j);
+        minTime=40000000000;
+        for(int k = 0; k < NUMBER_OF_RUNS; k++){
+            sum = 0;
+            #pragma omp parallel private(i, outputRow, outputColumn, outputIndex, inputIndex)
+            {
+                #pragma omp for 
+                for (i = 0; i < (outputColumnSize * outputRowSize) / 16; i++)
+                {
+                    outputRow = 2 * ((i * 4) / (outputRowSize / 2));
+                    outputColumn = 2 * ((i * 4) % (outputRowSize / 2));
+                    outputIndex = (outputRow * outputRowSize) + outputColumn;
+                    inputIndex = (i*4);
+                    // cout << i << '\t' << inputIndex << endl;
+                    t0 = rdtsc();
+                    kernel(inputImageR + inputIndex, inputImageG + inputIndex, inputImageB + inputIndex, outputR + outputIndex, outputG + outputIndex, outputB + outputIndex, outputRowSize);
+                    t1 = rdtsc();
+                    sum+=(t1-t0);
+                }
+            }
+            if(sum<minTime){
+                minTime =sum;
+            }
+        }   
+        sum = ((minTime) * MAX_FREQ / BASE_FREQ);
         GFLOPS = (12*4*((outputColumnSize*outputRowSize)/16))/sum;
-        cout << k << "," <<GFLOPS <<','<< sum << endl;
-    }   
+        cout << j << ","<< GFLOPS <<','<< sum << endl;
+    }
     // sum = ((sum) * MAX_FREQ / BASE_FREQ)/ NUMBER_OF_RUNS;
-    sum = ((minTime) * MAX_FREQ / BASE_FREQ);
-    GFLOPS = (12*4*((outputColumnSize*outputRowSize)/16))/sum;
-    cout << GFLOPS <<','<< sum << endl;
+    
     
     char BfileName[100];
     strcpy(BfileName, home);
@@ -194,4 +191,3 @@ int main(int argc, char **argv)
     free(outputG);
     free(outputB);
 }
-// 4*2*2

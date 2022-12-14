@@ -16,8 +16,10 @@ using namespace std;
 #define BASE_FREQ 2.4
 #define WINDOWSIZE 2
 
-#define INPUTWIDTH 8
-#define INPUTHEIGHT 8
+#define INPUTWIDTH 640
+#define INPUTHEIGHT 480
+
+#define NUMBER_OF_RUNS 100
 
 #define mask0  (0) | (0 << 2) | (0 << 4) | (0 << 6)
 #define mask1  (1) | (1 << 2) | (1 << 4) | (1 << 6)
@@ -33,19 +35,16 @@ static __inline__ unsigned long long rdtsc(void)
     return ((unsigned long long)lo) | (((unsigned long long)hi) << 32);
 }
 
-int decodeImage(float *inputImageR, float *inputImageG, float *inputImageB)
+int decodeImage(float *inputImageR, float *inputImageG, float *inputImageB,char *fileName)
 {
     int i, j, index = 0;
     float *tmpBuffer;
     // READ IMAGE and Init buffers
-    const char *fileName = "inputs/8x8.jpg";
     Mat fullImage, windowImage;
     Mat channels[3];
     std::vector<float> array;
     fullImage = imread(fileName);
     int imageRows = (int)fullImage.rows, imageCols = (int)fullImage.cols;
-    cout << "Width : " << imageCols << endl;
-    cout << "Height: " << imageRows << endl;
     
     split(fullImage, channels);
     array.assign(channels[0].datastart, channels[0].dataend);
@@ -57,9 +56,9 @@ int decodeImage(float *inputImageR, float *inputImageG, float *inputImageB)
     array.assign(channels[2].datastart, channels[2].dataend);
     tmpBuffer = &array[0];
     memcpy(inputImageR, tmpBuffer, imageCols * imageRows * sizeof(float));
-    cout << "RGB Channels Read and assgined"<<endl;
     return 0;
 }
+
 
 int encodeImage(float *outputR, float *outputG, float *outputB){
     const char *fileName = "/afs/ece.cmu.edu/usr/arexhari/Public/645-project/results/640x480-bl.jpg";
@@ -248,10 +247,14 @@ void kernel(float *intensityRin, float *intensityGin, float *intensityBin, float
 
 int main(int argc, char **argv)
 {
-    unsigned long long t0, t1, sum=0;
+    char *fileName = argv[1];
+    int gnWidth = atoi(argv[2]);
+    int gnHeight = atoi(argv[3]);
+    unsigned long long t0, t1;
+    long double sum=0, packingTime = 0, GFLOPS=0;
     // kernel width
-    int outputRowSize = INPUTWIDTH*2;
-    int outputColumnSize = INPUTHEIGHT*2;
+    int outputRowSize = gnWidth*2;
+    int outputColumnSize = gnHeight*2;
     int inputIndex, outputRow, outputColumn, outputIndex;
 
     // Output Image Stack defintion
@@ -260,43 +263,47 @@ int main(int argc, char **argv)
     float *outputB = (float *)calloc(outputRowSize * outputColumnSize, sizeof(float));
 
     // read in input 2x2 pixels
-    float *inputImageR = (float *)calloc(INPUTWIDTH * INPUTHEIGHT, sizeof(float));
-    float *inputImageG = (float *)calloc(INPUTWIDTH * INPUTHEIGHT, sizeof(float)); 
-    float *inputImageB = (float *)calloc(INPUTWIDTH * INPUTHEIGHT, sizeof(float));
+    float *inputImageR = (float *)calloc(gnHeight * gnWidth, sizeof(float));
+    float *inputImageG = (float *)calloc(gnHeight * gnWidth, sizeof(float)); 
+    float *inputImageB = (float *)calloc(gnHeight * gnWidth, sizeof(float));
     t0 = rdtsc();
-    decodeImage(inputImageR, inputImageG, inputImageB);
+    decodeImage(inputImageR, inputImageG, inputImageB, fileName);
     t1 = rdtsc();
-    // printf("PREPROCESSING TIME %f\n", ((double)(t1-t0) * MAX_FREQ / BASE_FREQ));
+    packingTime = (t1-t0) * MAX_FREQ / BASE_FREQ;
     float *coefficients = (float *)calloc(4 * 4 * 4, sizeof(float));
-    generateCoefficients(coefficients);
-    int n16 = INPUTWIDTH/16;
     // generate coefficients
-    for(int i = 0; i < (outputColumnSize*outputRowSize)/16 ; i++){
-        outputRow = 4*((i*2)/(outputRowSize/2));
-        outputColumn = 2*((i*2)%(outputRowSize/2));
-        outputIndex = (outputRow*outputRowSize)+outputColumn;
-        inputIndex = ((outputRow*outputRowSize)/4)+(outputColumn/2);
-        // cout << i << "  " <<inputIndex<< "  "  << outputIndex<<endl;
-        t0 = rdtsc();
-        kernel(inputImageR+inputIndex, inputImageG+inputIndex, inputImageB+inputIndex,outputR+outputIndex, outputG+outputIndex, outputB+outputIndex,coefficients, outputRowSize);
-        t1 = rdtsc();
-        sum=sum+(t1-t0);
-    }
+    generateCoefficients(coefficients);
     
-    sum =  ((sum) * MAX_FREQ / BASE_FREQ);
-    double GFLOPS = (2*48*4*((INPUTHEIGHT*INPUTWIDTH*4)/16))/sum;
-    cout << GFLOPS << ","<<GFLOPS<< endl;
-    encodeImage(outputR, outputG, outputB);
+    long double minTime = 4000000000;
+    for(int k = 0; k < NUMBER_OF_RUNS; k++){
+        sum=0;
+        for(int i = 0; i < (outputColumnSize*outputRowSize)/16 ; i++){
+            // cout << "In here" << i << endl;
+            outputRow = 4*((i*2)/(outputRowSize/2));
+            outputColumn = 2*((i*2)%(outputRowSize/2));
+            outputIndex = (outputRow*outputRowSize)+outputColumn;
+            inputIndex = ((outputRow*outputRowSize)/4)+(outputColumn/2);
+            t0 = rdtsc();
+            kernel(inputImageR+inputIndex, inputImageG+inputIndex, inputImageB+inputIndex,outputR+outputIndex, outputG+outputIndex, outputB+outputIndex,coefficients, outputRowSize);
+            t1 = rdtsc();
+            sum=sum+(t1-t0);
+        }
+        if(sum<minTime){
+            // printf("%f\n",sum);
+            // cout<<sum<<endl;
+            minTime =sum;
+        }
+        // cout<<sum<<endl;
+    
+    
+    }
+    // sum = ((sum) * MAX_FREQ / BASE_FREQ)/NUMBER_OF_RUNS;
+    sum = minTime* MAX_FREQ / BASE_FREQ;
+    GFLOPS = (2*48*4*((outputColumnSize*outputRowSize)/16))/sum;
+    cout << gnHeight <<','<< GFLOPS <<','<< sum << endl;
+    // encodeImage(outputR, outputG, outputB);
     free(coefficients);
     free(outputR);
     free(outputG);
     free(outputB);
 }
-
-
-
-/*
-1. how many 16x16 images
-2. inputR = skip 16x16 = 256
-2. outputR  = skip 32x32 = 
-*/
